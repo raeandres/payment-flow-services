@@ -4,7 +4,7 @@ const { Resource } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
 
 const jaegerExporter = new JaegerExporter({
-  endpoint: process.env.OTEL_EXPORTER_JAEGER_ENDPOINT || 'http://jaeger:14268/api/traces',
+  endpoint: 'http://opentelemetry:14268/api/traces',
 });
 
 const sdk = new NodeSDK({

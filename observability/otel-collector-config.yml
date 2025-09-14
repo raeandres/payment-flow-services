@@ -1,4 +1,8 @@
 receivers:
+  jaeger:
+    protocols:
+      thrift_http:
+        endpoint: 0.0.0.0:14268
   otlp:
     protocols:
       grpc:
@@ -8,33 +12,16 @@ receivers:
 
 processors:
   batch:
-    timeout: 1s
-    send_batch_size: 1024
-  resource:
-    attributes:
-      deployment.environment: "docker"
-      service.namespace: "payment-system"
 
 exporters:
-  jaeger:
-    endpoint: "jaeger:14250"
+  otlp:
+    endpoint: jaeger:14250
     tls:
       insecure: true
-  prometheus:
-    endpoint: "0.0.0.0:8889"
-    namespace: "payment_system"
-    const_labels:
-      environment: "docker"
-  logging:
-    loglevel: debug
 
 service:
   pipelines:
     traces:
-      receivers: [otlp]
-      processors: [batch, resource]
-      exporters: [jaeger, logging]
-    metrics:
-      receivers: [otlp]
-      processors: [batch, resource]
-      exporters: [prometheus, logging]
+      receivers: [jaeger, otlp]
+      processors: [batch]
+      exporters: [otlp]

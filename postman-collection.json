@@ -1,0 +1,116 @@
+{
+  "info": {
+    "name": "Payment Confirm Service Test",
+    "description": "Test collection for confirm service with tracing",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3003/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3003",
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Low Risk Payment ($100)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{$guid}}"
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "{{$guid}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"txn_postman_{{$timestamp}}\",\n  \"customer_id\": \"cust_001\",\n  \"amount\": 100.00,\n  \"from_account\": \"ACC001\",\n  \"to_account\": \"ACC002\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3003/payment/confirm",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3003",
+          "path": ["payment", "confirm"]
+        }
+      }
+    },
+    {
+      "name": "High Risk Payment ($15000) - Triggers OTP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{$guid}}"
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "{{$guid}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"txn_high_{{$timestamp}}\",\n  \"customer_id\": \"cust_001\",\n  \"amount\": 15000.00,\n  \"from_account\": \"ACC001\",\n  \"to_account\": \"ACC002\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3003/payment/confirm",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3003",
+          "path": ["payment", "confirm"]
+        }
+      }
+    },
+    {
+      "name": "Complete High Risk Payment with OTP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "same-key-as-previous-request"
+          },
+          {
+            "key": "X-Correlation-ID",
+            "value": "{{$guid}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transaction_id\": \"txn_high_REPLACE_WITH_TIMESTAMP\",\n  \"customer_id\": \"cust_001\",\n  \"amount\": 15000.00,\n  \"otp\": \"123456\",\n  \"from_account\": \"ACC001\",\n  \"to_account\": \"ACC002\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3003/payment/confirm",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3003",
+          "path": ["payment", "confirm"]
+        }
+      }
+    }
+  ]
+}
