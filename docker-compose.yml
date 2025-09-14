@@ -1,0 +1,398 @@
+version: '3.8'
+
+networks:
+  payment-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+  zookeeper-data:
+  influxdb-data:
+  elasticsearch-data:
+
+services:
+  # Load Balancer (NGINX)
+  load-balancer:
+    image: nginx:alpine
+    container_name: payment-load-balancer
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api-gateway-1
+      - api-gateway-2
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # API Gateway Instances
+  api-gateway-1:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: payment-api-gateway-1
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=your-super-secret-jwt-key-change-this
+      - REDIS_URL=redis://:redis_password@redis-cache:6379
+      - CONFIRM_SERVICE_URL=http://confirm-service:3003
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - redis-cache
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  api-gateway-2:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: payment-api-gateway-2
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=your-super-secret-jwt-key-change-this
+      - REDIS_URL=redis://:redis_password@redis-cache:6379
+      - CONFIRM_SERVICE_URL=http://confirm-service:3003
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - redis-cache
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # Core Payment Services
+  confirm-service:
+    build:
+      context: ./services/confirm-service
+      dockerfile: Dockerfile
+    container_name: payment-confirm-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - POSTGRES_URL=postgresql://payment_user:payment_pass@postgres-db:5432/payment_db
+      - REDIS_URL=redis://:redis_password@redis-cache:6379
+      - RISK_SERVICE_URL=http://risk-service:3004
+      - OTP_SERVICE_URL=http://otp-service:3006
+      - ACCOUNT_SERVICE_URL=http://account-service:3007
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3005
+      - AUDIT_SERVICE_URL=http://audit-service:3008
+      - KAFKA_BROKERS=kafka:9092
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - postgres-db
+      - redis-cache
+      - kafka
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  risk-service:
+    build:
+      context: ./services/risk-service
+      dockerfile: Dockerfile
+    container_name: payment-risk-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3004
+      - POSTGRES_URL=postgresql://payment_user:payment_pass@postgres-db:5432/payment_db
+      - OFAC_SERVICE_URL=http://ofac-service:3009
+      - KYC_SERVICE_URL=http://kyc-service:3010
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - postgres-db
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: payment-notification-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      - TWILIO_ACCOUNT_SID=your-twilio-account-sid
+      - TWILIO_AUTH_TOKEN=your-twilio-auth-token
+      - SENDGRID_API_KEY=your-sendgrid-api-key
+      - KAFKA_BROKERS=kafka:9092
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - kafka
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  otp-service:
+    build:
+      context: ./services/otp-service
+      dockerfile: Dockerfile
+    container_name: payment-otp-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3006
+      - REDIS_URL=redis://:redis_password@redis-cache:6379
+      - TWILIO_ACCOUNT_SID=your-twilio-account-sid
+      - TWILIO_AUTH_TOKEN=your-twilio-auth-token
+      - SENDGRID_API_KEY=your-sendgrid-api-key
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - redis-cache
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  account-service:
+    build:
+      context: ./services/account-service
+      dockerfile: Dockerfile
+    container_name: payment-account-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3007
+      - POSTGRES_URL=postgresql://payment_user:payment_pass@postgres-db:5432/payment_db
+      - REDIS_URL=redis://:redis_password@redis-cache:6379
+      - PARTNER_BANK_API_URL=http://partner-bank-api:3011
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - postgres-db
+      - redis-cache
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  audit-service:
+    build:
+      context: ./services/audit-service
+      dockerfile: Dockerfile
+    container_name: payment-audit-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3008
+      - POSTGRES_URL=postgresql://payment_user:payment_pass@postgres-db:5432/payment_db
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - postgres-db
+      - elasticsearch
+      - jaeger
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # External Service Mocks
+  ofac-service:
+    build:
+      context: ./services/ofac-service
+      dockerfile: Dockerfile
+    container_name: payment-ofac-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3009
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  kyc-service:
+    build:
+      context: ./services/kyc-service
+      dockerfile: Dockerfile
+    container_name: payment-kyc-service
+    environment:
+      - NODE_ENV=production
+      - PORT=3010
+      - POSTGRES_URL=postgresql://payment_user:payment_pass@postgres-db:5432/payment_db
+    depends_on:
+      - postgres-db
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  partner-bank-api:
+    build:
+      context: ./services/partner-bank-api
+      dockerfile: Dockerfile
+    container_name: payment-partner-bank-api
+    environment:
+      - NODE_ENV=production
+      - PORT=3011
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # Data Storage Services
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: payment-postgres-db
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: payment_pass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - payment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment_user -d payment_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: payment-redis-cache
+    command: redis-server --appendonly yes --requirepass redis_password
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # Message Queue Services
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: payment-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: payment-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # Observability Services
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: payment-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  opentelemetry:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: payment-opentelemetry
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./observability/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+      - prometheus
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: payment-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: payment-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: payment-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: payment-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: payment-influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: password123
+      DOCKER_INFLUXDB_INIT_ORG: payment-org
+      DOCKER_INFLUXDB_INIT_BUCKET: payment-metrics
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    ports:
+      - "8086:8086"
+    networks:
+      - payment-network
+    restart: unless-stopped

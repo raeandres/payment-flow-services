@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'payment-services'
+    static_configs:
+      - targets: 
+        - 'api-gateway-1:3000'
+        - 'api-gateway-2:3000'
+        - 'confirm-service:3003'
+        - 'risk-service:3004'
+        - 'notification-service:3005'
+        - 'otp-service:3006'
+        - 'account-service:3007'
+        - 'audit-service:3008'
+
+  - job_name: 'infrastructure'
+    static_configs:
+      - targets:
+        - 'postgres-db:5432'
+        - 'redis-cache:6379'
+        - 'kafka:9092'
