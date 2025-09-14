@@ -9,6 +9,10 @@
     "express-rate-limit": "^6.7.0",
     "jsonwebtoken": "^9.0.0",
     "redis": "^4.6.7",
-    "axios": "^1.4.0"
+    "axios": "^1.4.0",
+    "@opentelemetry/sdk-node": "^0.45.0",
+    "@opentelemetry/exporter-jaeger": "^1.17.0",
+    "@opentelemetry/resources": "^1.17.0",
+    "@opentelemetry/semantic-conventions": "^1.17.0"
   }
 }

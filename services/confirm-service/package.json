@@ -10,6 +10,10 @@
     "pg": "^8.11.0",
     "kafkajs": "^2.2.4",
     "axios": "^1.4.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "@opentelemetry/sdk-node": "^0.45.0",
+    "@opentelemetry/exporter-jaeger": "^1.17.0",
+    "@opentelemetry/resources": "^1.17.0",
+    "@opentelemetry/semantic-conventions": "^1.17.0"
   }
 }

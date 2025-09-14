@@ -1,3 +1,5 @@
+require('./tracing');
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -83,6 +85,7 @@ app.post('/auth/login', async (req, res) => {
         JWT_SECRET
       );
       
+      console.log('✅ User authenticated successfully');
       res.json({
         success: true,
         access_token: token,
@@ -103,7 +106,7 @@ app.post('/payment/confirm',
   validateRequest(['transaction_id', 'customer_id', 'amount']),
   async (req, res) => {
     try {
-      console.log(`🛡️ API Gateway: Processing confirm request for user ${req.user.user_id}`);
+      console.log(`🛡️ API Gateway: Processing payment of $${req.body.amount} for user ${req.user.user_id}`);
       
       req.body.authenticated_user = req.user.user_id;
       
@@ -117,10 +120,11 @@ app.post('/payment/confirm',
         timeout: 30000
       });
       
+      console.log(`✅ Payment processed successfully: ${req.body.transaction_id}`);
       res.json(response.data);
       
     } catch (error) {
-      console.error('API Gateway error:', error);
+      console.error('❌ API Gateway error:', error.message);
       
       if (error.response) {
         res.status(error.response.status).json(error.response.data);

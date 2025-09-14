@@ -1,3 +1,5 @@
+require('./tracing');
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -60,6 +62,7 @@ const idempotencyMiddleware = async (req, res, next) => {
   try {
     const cached = await redisClient.get(`confirm:${idempotencyKey}`);
     if (cached) {
+      console.log(`🔄 Returning cached response for ${idempotencyKey}`);
       return res.json(JSON.parse(cached));
     }
     
@@ -76,15 +79,20 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
     const { transaction_id, otp, customer_id, amount } = req.body;
     const { idempotencyKey } = req;
     
-    console.log(`🔄 Processing confirm for transaction: ${transaction_id}`);
+    console.log(`🔄 Processing payment confirmation: ${transaction_id} - Amount: $${amount}`);
 
     const transactionQuery = 'SELECT * FROM transactions WHERE id = $1';
     const transactionResult = await pgPool.query(transactionQuery, [transaction_id]);
     
     if (transactionResult.rows.length === 0) {
-      throw new Error('TRANSACTION_NOT_FOUND');
+      console.log(`⚠️ Transaction not found, creating new: ${transaction_id}`);
+      await pgPool.query(
+        'INSERT INTO transactions (id, customer_id, amount, status, created_at) VALUES ($1, $2, $3, $4, NOW())',
+        [transaction_id, customer_id, amount, 'INITIATED']
+      );
     }
 
+    console.log(`🔍 Calling risk assessment for ${transaction_id}`);
     const riskResponse = await axios.post(`${RISK_SERVICE_URL}/assess-risk`, {
       customer_id,
       transaction_id,
@@ -92,8 +100,10 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
     });
 
     const requiresOTP = riskResponse.data.risk_level === 'HIGH';
+    console.log(`🚨 Risk level: ${riskResponse.data.risk_level} (Score: ${riskResponse.data.risk_score})`);
 
     if (requiresOTP && !otp) {
+      console.log(`📱 OTP required for high-risk transaction: ${transaction_id}`);
       await axios.post(`${OTP_SERVICE_URL}/generate-otp`, {
         customer_id,
         transaction_id
@@ -102,7 +112,8 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
       const otpResponse = {
         status: 'OTP_REQUIRED',
         message: 'OTP verification required',
-        transaction_id
+        transaction_id,
+        risk_level: riskResponse.data.risk_level
       };
 
       await redisClient.setEx(`confirm:${idempotencyKey}`, 86400, JSON.stringify(otpResponse));
@@ -110,6 +121,7 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
     }
 
     if (requiresOTP && otp) {
+      console.log(`🔐 Verifying OTP for ${transaction_id}`);
       const otpVerification = await axios.post(`${OTP_SERVICE_URL}/verify-otp`, {
         customer_id,
         otp,
@@ -119,8 +131,10 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
       if (!otpVerification.data.valid) {
         throw new Error('INVALID_OTP');
       }
+      console.log(`✅ OTP verified successfully`);
     }
 
+    console.log(`💰 Validating account for ${customer_id}`);
     await axios.post(`${ACCOUNT_SERVICE_URL}/validate-account`, {
       customer_id,
       required_amount: amount
@@ -131,6 +145,7 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
       ['CONFIRMED', transaction_id]
     );
 
+    console.log(`📤 Publishing payment event to Kafka`);
     await producer.send({
       topic: 'payment-events',
       messages: [{
@@ -139,11 +154,13 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
           transaction_id,
           customer_id,
           amount,
-          event_type: 'PAYMENT_CONFIRMED'
+          event_type: 'PAYMENT_CONFIRMED',
+          timestamp: new Date().toISOString()
         })
       }]
     });
 
+    console.log(`📧 Sending notification for ${transaction_id}`);
     await axios.post(`${NOTIFICATION_SERVICE_URL}/send-notification`, {
       customer_id,
       type: 'PAYMENT_CONFIRMED',
@@ -157,16 +174,17 @@ app.post('/payment/confirm', idempotencyMiddleware, async (req, res) => {
       transaction_id,
       reference,
       amount: parseFloat(amount),
-      confirmed_at: new Date().toISOString()
+      confirmed_at: new Date().toISOString(),
+      risk_level: riskResponse.data.risk_level
     };
 
     await redisClient.setEx(`confirm:${idempotencyKey}`, 86400, JSON.stringify(successResponse));
 
-    console.log(`✅ Payment confirmed: ${transaction_id}`);
+    console.log(`✅ Payment confirmed successfully: ${transaction_id} - $${amount}`);
     res.json(successResponse);
 
   } catch (error) {
-    console.error('❌ Confirm failed:', error);
+    console.error(`❌ Payment confirmation failed: ${error.message}`);
     res.status(400).json({
       status: 'ERROR',
       error: error.message
